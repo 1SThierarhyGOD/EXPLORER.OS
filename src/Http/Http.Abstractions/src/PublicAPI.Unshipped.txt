@@ -4,3 +4,10 @@ Microsoft.AspNetCore.Http.HostString.HostString(string? value) -> void
 *REMOVED*Microsoft.AspNetCore.Http.HostString.Value.get -> string!
 Microsoft.AspNetCore.Http.HostString.Value.get -> string?
 Microsoft.AspNetCore.Http.HttpValidationProblemDetails.HttpValidationProblemDetails(System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<string!, string![]!>>! errors) -> void
+Microsoft.AspNetCore.Http.Metadata.IParameterBindingMetadata
+Microsoft.AspNetCore.Http.Metadata.IParameterBindingMetadata.AsParameters.get -> System.Collections.Generic.IEnumerable<(System.Reflection.ParameterInfo!, bool)>?
+Microsoft.AspNetCore.Http.Metadata.IParameterBindingMetadata.IsBindAsync.get -> bool
+Microsoft.AspNetCore.Http.Metadata.IParameterBindingMetadata.IsTryParsable.get -> bool
+Microsoft.AspNetCore.Http.Metadata.IParameterBindingMetadata.ParameterName.get -> string!
+Microsoft.AspNetCore.Http.Metadata.IProducesResponseTypeMetadata.IsAwaitableInferred.get -> bool
+Microsoft.AspNetCore.Http.ProducesResponseTypeMetadata.IsAwaitableInferred.get -> bool

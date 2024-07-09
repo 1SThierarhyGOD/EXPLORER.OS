@@ -2567,6 +2567,7 @@ public partial class RequestDelegateFactoryTests : LoggedTest
         // but we just specified our CustomEndpointMetadata in this test.
         Assert.Collection(result.EndpointMetadata,
             m => Assert.Same(customMetadata, m),
+            m => Assert.True(m is IParameterBindingMetadata { IsBindAsync : true }),
             m => Assert.True(m is ParameterNameMetadata { Name: "param1" }),
             m => Assert.True(m is CustomEndpointMetadata { Source: MetadataSource.Parameter }));
     }

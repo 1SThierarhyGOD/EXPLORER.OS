@@ -22,4 +22,12 @@ public interface IProducesResponseTypeMetadata
     /// Gets the content types supported by the metadata.
     /// </summary>
     IEnumerable<string> ContentTypes { get; }
+
+    /// <summary>
+    ///
+    /// </summary> <summary>
+    ///
+    /// </summary>
+    /// <value></value>
+    bool IsAwaitableInferred { get; }
 }

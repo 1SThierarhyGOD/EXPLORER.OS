@@ -15,7 +15,6 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.Routing.Patterns;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Internal;
 using Microsoft.Extensions.Primitives;
 
 namespace Microsoft.AspNetCore.Mvc.ApiExplorer;
@@ -25,7 +24,6 @@ internal sealed class EndpointMetadataApiDescriptionProvider : IApiDescriptionPr
     private readonly EndpointDataSource _endpointDataSource;
     private readonly IHostEnvironment _environment;
     private readonly IServiceProviderIsService? _serviceProviderIsService;
-    private readonly ParameterBindingMethodCache ParameterBindingMethodCache = new();
     private readonly ParameterPolicyFactory _parameterPolicyFactory;
 
     // Executes before MVC's DefaultApiDescriptionProvider and GrpcJsonTranscodingDescriptionProvider for no particular reason.
@@ -116,17 +114,38 @@ internal sealed class EndpointMetadataApiDescriptionProvider : IApiDescriptionPr
 
         var hasBodyOrFormFileParameter = false;
 
-        foreach (var parameter in PropertyAsParameterInfo.Flatten(methodInfo.GetParameters(), ParameterBindingMethodCache))
+        foreach (var parameter in methodInfo.GetParameters())
         {
-            var parameterDescription = CreateApiParameterDescription(parameter, routeEndpoint.RoutePattern, disableInferredBody);
-
-            if (parameterDescription is { })
+            var parameterBindingMetadata = routeEndpoint.Metadata.GetOrderedMetadata<IParameterBindingMetadata>().FirstOrDefault(m => m.ParameterName == parameter.Name);
+            // If the parameter is marked with `AsParameters` attribute then explode the parameter into multiple parameters.
+            if (parameterBindingMetadata is { AsParameters: { } asParameters } && asParameters.Any())
             {
-                apiDescription.ParameterDescriptions.Add(parameterDescription);
+                foreach ((var parameterInfo, var propertyAsParametersInfoIsOptional) in parameterBindingMetadata.AsParameters)
+                {
+                    var parameterDescription = CreateApiParameterDescription(parameterInfo, routeEndpoint, disableInferredBody, propertyAsParameterInfo: true, propertyAsParametersInfoIsOptional: propertyAsParametersInfoIsOptional);
 
-                hasBodyOrFormFileParameter |=
-                    parameterDescription.Source == BindingSource.Body ||
-                    parameterDescription.Source == BindingSource.FormFile;
+                    if (parameterDescription is { })
+                    {
+                        apiDescription.ParameterDescriptions.Add(parameterDescription);
+
+                        hasBodyOrFormFileParameter |=
+                            parameterDescription.Source == BindingSource.Body ||
+                            parameterDescription.Source == BindingSource.FormFile;
+                    }
+                }
+            }
+            else
+            {
+                var parameterDescription = CreateApiParameterDescription(parameter, routeEndpoint, disableInferredBody);
+
+                if (parameterDescription is { })
+                {
+                    apiDescription.ParameterDescriptions.Add(parameterDescription);
+
+                    hasBodyOrFormFileParameter |=
+                        parameterDescription.Source == BindingSource.Body ||
+                        parameterDescription.Source == BindingSource.FormFile;
+                }
             }
         }
 
@@ -169,9 +188,10 @@ internal sealed class EndpointMetadataApiDescriptionProvider : IApiDescriptionPr
         return apiDescription;
     }
 
-    private ApiParameterDescription? CreateApiParameterDescription(ParameterInfo parameter, RoutePattern pattern, bool disableInferredBody)
+    private ApiParameterDescription? CreateApiParameterDescription(ParameterInfo parameter, RouteEndpoint routeEndpoint, bool disableInferredBody, bool propertyAsParameterInfo = false, bool propertyAsParametersInfoIsOptional = false)
     {
-        var (source, name, allowEmpty, paramType) = GetBindingSourceAndName(parameter, pattern, disableInferredBody);
+        var pattern = routeEndpoint.RoutePattern;
+        var (source, name, allowEmpty, paramType) = GetBindingSourceAndName(parameter, routeEndpoint, disableInferredBody);
 
         // Services are ignored because they are not request parameters.
         if (source == BindingSource.Services)
@@ -182,8 +202,8 @@ internal sealed class EndpointMetadataApiDescriptionProvider : IApiDescriptionPr
         // Determine the "requiredness" based on nullability, default value or if allowEmpty is set
         var nullabilityContext = new NullabilityInfoContext();
         var nullability = nullabilityContext.Create(parameter);
-        var isOptional = parameter is PropertyAsParameterInfo argument
-            ? argument.IsOptional || allowEmpty
+        var isOptional = propertyAsParameterInfo
+            ? propertyAsParametersInfoIsOptional || allowEmpty
             : parameter.HasDefaultValue || nullability.ReadState != NullabilityState.NotNull || allowEmpty;
         var parameterDescriptor = CreateParameterDescriptor(parameter, pattern);
         var routeInfo = CreateParameterRouteInfo(pattern, parameter, isOptional);
@@ -250,9 +270,11 @@ internal sealed class EndpointMetadataApiDescriptionProvider : IApiDescriptionPr
 
     // TODO: Share more of this logic with RequestDelegateFactory.CreateArgument(...) using RequestDelegateFactoryUtilities
     // which is shared source.
-    private (BindingSource, string, bool, Type) GetBindingSourceAndName(ParameterInfo parameter, RoutePattern pattern, bool disableInferredBody)
+    private (BindingSource, string, bool, Type) GetBindingSourceAndName(ParameterInfo parameter, RouteEndpoint routeEndpoint, bool disableInferredBody)
     {
+        var pattern = routeEndpoint.RoutePattern;
         var attributes = parameter.GetCustomAttributes();
+        var parameterBindingMetadata = routeEndpoint.Metadata.GetOrderedMetadata<IParameterBindingMetadata>().FirstOrDefault(m => m.ParameterName == parameter.Name);
 
         if (attributes.OfType<IFromRouteMetadata>().FirstOrDefault() is { } routeAttribute)
         {
@@ -282,12 +304,12 @@ internal sealed class EndpointMetadataApiDescriptionProvider : IApiDescriptionPr
                  parameter.ParameterType == typeof(HttpResponse) ||
                  parameter.ParameterType == typeof(ClaimsPrincipal) ||
                  parameter.ParameterType == typeof(CancellationToken) ||
-                 ParameterBindingMethodCache.HasBindAsyncMethod(parameter) ||
+                 parameterBindingMetadata?.IsBindAsync == true ||
                  _serviceProviderIsService?.IsService(parameter.ParameterType) == true)
         {
             return (BindingSource.Services, parameter.Name ?? string.Empty, false, parameter.ParameterType);
         }
-        else if (parameter.ParameterType == typeof(string) || ParameterBindingMethodCache.HasTryParseMethod(parameter.ParameterType))
+        else if (parameter.ParameterType == typeof(string) || (!parameter.ParameterType.IsArray && parameter.ParameterType != typeof(StringValues) && parameterBindingMetadata?.IsTryParsable == true))
         {
             // complex types will display as strings since they use custom parsing via TryParse on a string
             var displayType = EndpointModelMetadata.GetDisplayType(parameter.ParameterType);
@@ -309,7 +331,7 @@ internal sealed class EndpointMetadataApiDescriptionProvider : IApiDescriptionPr
         else if (disableInferredBody && (
                  parameter.ParameterType == typeof(string[]) ||
                  parameter.ParameterType == typeof(StringValues) ||
-                 (parameter.ParameterType.IsArray && ParameterBindingMethodCache.HasTryParseMethod(parameter.ParameterType.GetElementType()!)) ))
+                 (parameter.ParameterType.IsArray && parameterBindingMetadata?.IsTryParsable == true)))
         {
             return (BindingSource.Query, parameter.Name ?? string.Empty, false, parameter.ParameterType);
         }
@@ -326,9 +348,9 @@ internal sealed class EndpointMetadataApiDescriptionProvider : IApiDescriptionPr
     {
         var responseType = returnType;
 
-        if (CoercedAwaitableInfo.IsTypeAwaitable(responseType, out var coercedAwaitableInfo))
+        if (endpointMetadata.GetOrderedMetadata<IProducesResponseTypeMetadata>().Where(metadata => metadata.IsAwaitableInferred).FirstOrDefault() is { } coercedAwaitableInfo)
         {
-            responseType = coercedAwaitableInfo.AwaitableInfo.ResultType;
+            responseType = coercedAwaitableInfo.Type!;
         }
 
         // Can't determine anything about IResults yet that's not from extra metadata. IResult<T> could help here.

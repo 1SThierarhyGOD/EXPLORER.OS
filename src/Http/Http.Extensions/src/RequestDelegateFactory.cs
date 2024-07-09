@@ -772,6 +772,10 @@ public static partial class RequestDelegateFactory
                 parameter.ParameterType == typeof(StringValues?) ||
                 ParameterBindingMethodCache.HasTryParseMethod(parameter.ParameterType) ||
                 (parameter.ParameterType.IsArray && ParameterBindingMethodCache.HasTryParseMethod(parameter.ParameterType.GetElementType()!));
+            if (useSimpleBinding)
+            {
+                factoryContext.EndpointBuilder.Metadata.Add(new ParameterBindingMetadata(parameter.Name, hasTryParse: true));
+            }
             return useSimpleBinding
                 ? BindParameterFromFormItem(parameter, formAttribute.Name ?? parameter.Name, factoryContext)
                 : BindComplexParameterFromFormItem(parameter, string.IsNullOrEmpty(formAttribute.Name) ? parameter.Name : formAttribute.Name, factoryContext);
@@ -847,10 +851,12 @@ public static partial class RequestDelegateFactory
         }
         else if (ParameterBindingMethodCache.HasBindAsyncMethod(parameter))
         {
+            factoryContext.EndpointBuilder.Metadata.Add(new ParameterBindingMetadata(parameter.Name, hasBindAsync: true));
             return BindParameterFromBindAsync(parameter, factoryContext);
         }
         else if (parameter.ParameterType == typeof(string) || ParameterBindingMethodCache.HasTryParseMethod(parameter.ParameterType))
         {
+            factoryContext.EndpointBuilder.Metadata.Add(new ParameterBindingMetadata(parameter.Name, hasTryParse: true));
             // 1. We bind from route values only, if route parameters are non-null and the parameter name is in that set.
             // 2. We bind from query only, if route parameters are non-null and the parameter name is NOT in that set.
             // 3. Otherwise, we fallback to route or query if route parameters is null (it means we don't know what route parameters are defined). This case only happens
@@ -881,7 +887,7 @@ public static partial class RequestDelegateFactory
                 (parameter.ParameterType.IsArray && ParameterBindingMethodCache.HasTryParseMethod(parameter.ParameterType.GetElementType()!))))
         {
             // We only infer parameter types if you have an array of TryParsables/string[]/StringValues/StringValues?, and DisableInferredFromBody is true
-
+            factoryContext.EndpointBuilder.Metadata.Add(new ParameterBindingMetadata(parameter.Name, hasTryParse: true));
             factoryContext.TrackedParameters.Add(parameter.Name, RequestDelegateFactoryConstants.QueryStringParameter);
             return BindParameterFromProperty(parameter, QueryExpr, QueryIndexerProperty, parameter.Name, factoryContext, "query string");
         }
@@ -1012,6 +1018,7 @@ public static partial class RequestDelegateFactory
         if (CoercedAwaitableInfo.IsTypeAwaitable(returnType, out var coercedAwaitableInfo))
         {
             returnType = coercedAwaitableInfo.AwaitableInfo.ResultType;
+            builder.Metadata.Add(ProducesResponseTypeMetadata.CreateUnvalidated(returnType, statusCode: 200, DefaultAcceptsAndProducesContentType, isAwaitableInferred: true));
         }
 
         // Skip void returns and IResults. IResults might implement IEndpointMetadataProvider but otherwise we don't know what it might do.
@@ -1545,6 +1552,7 @@ public static partial class RequestDelegateFactory
         var (constructor, parameters) = ParameterBindingMethodCache.FindConstructor(parameterType);
 
         Expression initExpression;
+        var capturedAsParameters = new List<(ParameterInfo, bool)>();
 
         if (constructor is not null && parameters is { Length: > 0 })
         {
@@ -1556,6 +1564,7 @@ public static partial class RequestDelegateFactory
             {
                 var parameterInfo =
                     new PropertyAsParameterInfo(parameters[i].PropertyInfo, parameters[i].ParameterInfo, factoryContext.NullabilityContext);
+                capturedAsParameters.Add((parameterInfo, parameterInfo.IsOptional));
                 constructorArguments[i] = CreateArgument(parameterInfo, factoryContext);
                 factoryContext.Parameters.Add(parameterInfo);
             }
@@ -1579,6 +1588,7 @@ public static partial class RequestDelegateFactory
                 if (properties[i].CanWrite && properties[i].GetSetMethod(nonPublic: false) != null)
                 {
                     var parameterInfo = new PropertyAsParameterInfo(properties[i], factoryContext.NullabilityContext);
+                    capturedAsParameters.Add((parameterInfo, parameterInfo.IsOptional));
                     bindings.Add(Expression.Bind(properties[i], CreateArgument(parameterInfo, factoryContext)));
                     factoryContext.Parameters.Add(parameterInfo);
                 }
@@ -1590,6 +1600,8 @@ public static partial class RequestDelegateFactory
 
             initExpression = Expression.MemberInit(newExpression, bindings);
         }
+
+        factoryContext.EndpointBuilder.Metadata.Add(new ParameterBindingMetadata(parameter.Name!, asParameters: capturedAsParameters));
 
         factoryContext.ParamCheckExpressions.Add(
             Expression.Assign(argumentExpression, initExpression));
@@ -2863,5 +2875,13 @@ public static partial class RequestDelegateFactory
     {
         public static EmptyServiceProvider Instance { get; } = new EmptyServiceProvider();
         public object? GetService(Type serviceType) => null;
+    }
+
+    private sealed class ParameterBindingMetadata(string parameterName, bool hasTryParse = false, bool hasBindAsync = false, List<(ParameterInfo, bool)>? asParameters = null) : IParameterBindingMetadata
+    {
+        public string ParameterName => parameterName;
+        public bool IsTryParsable => hasTryParse;
+        public bool IsBindAsync => hasBindAsync;
+        public IEnumerable<(ParameterInfo, bool)>? AsParameters => asParameters;
     }
 }

@@ -51,11 +51,12 @@ public sealed class ProducesResponseTypeMetadata : IProducesResponseTypeMetadata
     }
 
     // Only for internal use where validation is unnecessary.
-    private ProducesResponseTypeMetadata(int statusCode, Type? type, IEnumerable<string> contentTypes)
+    private ProducesResponseTypeMetadata(int statusCode, Type? type, IEnumerable<string> contentTypes, bool isInferredAwaitable = false)
     {
-        Type = type;
         StatusCode = statusCode;
+        Type = type;
         ContentTypes = contentTypes;
+        IsAwaitableInferred = isInferredAwaitable;
     }
 
     /// <summary>
@@ -73,11 +74,16 @@ public sealed class ProducesResponseTypeMetadata : IProducesResponseTypeMetadata
     /// </summary>
     public IEnumerable<string> ContentTypes { get; private set; }
 
+    /// <summary>
+    ///
+    /// </summary>
+    public bool IsAwaitableInferred { get; }
+
     /// <inheritdoc/>
     public override string ToString()
     {
         return DebuggerHelpers.GetDebugText(nameof(StatusCode), StatusCode, nameof(ContentTypes), ContentTypes, nameof(Type), Type, includeNullValues: false, prefix: "Produces");
     }
 
-    internal static ProducesResponseTypeMetadata CreateUnvalidated(Type? type, int statusCode, IEnumerable<string> contentTypes) => new(statusCode, type, contentTypes);
+    internal static ProducesResponseTypeMetadata CreateUnvalidated(Type? type, int statusCode, IEnumerable<string> contentTypes, bool isAwaitableInferred = false) => new(statusCode, type, [..contentTypes], isInferredAwaitable: isAwaitableInferred);
 }

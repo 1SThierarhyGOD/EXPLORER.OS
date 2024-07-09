@@ -449,6 +449,17 @@ internal static class RequestDelegateGeneratorSources
     }
 """;
 
+    public static string ParameterBindingMetadataClass = $$"""
+    {{GeneratedCodeAttribute}}
+    file sealed class ParameterBindingMetadata(string parameterName, bool hasTryParse = false, bool hasBindAsync = false, List<(ParameterInfo, bool)>? asParameters = null) : Microsoft.AspNetCore.Http.Metadata.IParameterBindingMetadata
+    {
+        public string ParameterName => parameterName;
+        public bool IsTryParsable => hasTryParse;
+        public bool IsBindAsync => hasBindAsync;
+        public IEnumerable<(ParameterInfo, bool)>? AsParameters => asParameters;
+    }
+""";
+
     public static string AntiforgeryMetadataType = """
 file sealed class AntiforgeryMetadata : IAntiforgeryMetadata
 {

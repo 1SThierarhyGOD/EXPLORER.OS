@@ -8,6 +8,7 @@ using System.Text;
 using Microsoft.AspNetCore.Analyzers.RouteEmbeddedLanguage.Infrastructure;
 using Microsoft.AspNetCore.Http.RequestDelegateGenerator.StaticRouteHandlerModel.Emitters;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 
 namespace Microsoft.AspNetCore.Http.RequestDelegateGenerator.StaticRouteHandlerModel;
 
@@ -358,8 +359,26 @@ internal static class StaticRouteHandlerModelEmitter
         }
     }
 
+    public static void EmitParameterBindingMetadata(this Endpoint endpoint, CodeWriter codeWriter)
+    {
+        foreach (var parameter in endpoint.Parameters)
+        {
+            if (parameter.IsParsable)
+            {
+                endpoint.EmitterContext.RequiresParameterBindingMetadataClass = true;
+                codeWriter.WriteLine($"options.EndpointBuilder.Metadata.Add(new ParameterBindingMetadata({SymbolDisplay.FormatLiteral(parameter.SymbolName, true)}, hasTryParse: true));");
+            }
+            if (parameter.Source == EndpointParameterSource.BindAsync)
+            {
+                endpoint.EmitterContext.RequiresParameterBindingMetadataClass = true;
+                codeWriter.WriteLine($"options.EndpointBuilder.Metadata.Add(new ParameterBindingMetadata({SymbolDisplay.FormatLiteral(parameter.SymbolName, true)}, hasBindAsync: true));");
+            }
+        }
+    }
+
     public static void EmitEndpointMetadataPopulation(this Endpoint endpoint, CodeWriter codeWriter)
     {
+        endpoint.EmitParameterBindingMetadata(codeWriter);
         endpoint.EmitAcceptsMetadata(codeWriter);
         endpoint.EmitBuiltinResponseTypeMetadata(codeWriter);
         endpoint.EmitCallsToMetadataProvidersForParameters(codeWriter);

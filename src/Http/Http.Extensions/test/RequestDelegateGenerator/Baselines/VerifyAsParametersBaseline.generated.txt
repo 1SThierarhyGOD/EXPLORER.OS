@@ -1059,6 +1059,13 @@ namespace Microsoft.AspNetCore.Http.Generated
 
         public new bool IsOptional { get; }
     }
+    %GENERATEDCODEATTRIBUTE%
+    file sealed class ParameterBindingMetadata(string parameterName, bool hasTryParse, bool hasBindAsync) : Microsoft.AspNetCore.Http.Metadata.IParameterBindingMetadata
+    {
+        public string ParameterName => parameterName;
+        public bool HasTryParse => hasTryParse;
+        public bool HasBindAsync => hasBindAsync;
+    }
 
     %GENERATEDCODEATTRIBUTE%
     file sealed class LogOrThrowExceptionHelper

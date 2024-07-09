@@ -219,6 +219,7 @@ internal class EndpointParameter
         {
             endpoint.IsAwaitable = true;
             endpoint.EmitterContext.RequiresPropertyAsParameterInfo = IsProperty && bindMethod is BindabilityMethod.BindAsyncWithParameter or BindabilityMethod.IBindableFromHttpContext;
+            endpoint.EmitterContext.RequiresParameterBindingMetadataClass = true;
             Source = EndpointParameterSource.BindAsync;
             BindMethod = bindMethod;
             BindableMethodSymbol = bindMethodSymbol;
@@ -240,6 +241,7 @@ internal class EndpointParameter
         else if (TryGetParsability(Type, wellKnownTypes, out var parsingBlockEmitter))
         {
             Source = EndpointParameterSource.RouteOrQuery;
+            endpoint.EmitterContext.RequiresParameterBindingMetadataClass = true;
             IsParsable = true;
             ParsingBlockEmitter = parsingBlockEmitter;
         }
